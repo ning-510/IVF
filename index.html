@@ -115,13 +115,13 @@
         setMedLibrary(newLib);
         setNewLibName('');
         setNewLibAppearance('');
-        // syncDataToCloud(newLib, null, null); // 啟用雲端時解開
+        syncDataToCloud(newLib, null, null); // 已經解開註解，資料會送往雲端！
       };
       
       const handleLibDelete = (nameToDelete) => {
         const newLib = medLibrary.filter(item => (typeof item === 'string' ? item : item.name) !== nameToDelete);
         setMedLibrary(newLib);
-        // syncDataToCloud(newLib, null, null); // 啟用雲端時解開
+        syncDataToCloud(newLib, null, null); // 已經解開註解，資料會送往雲端！
       };
 
       // --- 藥單設定邏輯 ---
@@ -202,7 +202,7 @@
         newRecords[dateKey][recordKey] = !newRecords[dateKey][recordKey];
         
         setDailyRecords(newRecords);
-        // syncDataToCloud(null, null, newRecords); // 啟用雲端時解開
+        syncDataToCloud(null, null, newRecords); // 已經解開註解，打卡紀錄會送往雲端！
       };
 
       // UI 渲染函數
