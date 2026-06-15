@@ -5,10 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>療程用藥紀錄</title>
   
-  <!-- 引入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- 模組對照表：讓瀏覽器可以直接載入 React 與 Icons -->
   <script type="importmap">
     {
       "imports": {
@@ -18,8 +16,6 @@
       }
     }
   </script>
-  
-  <!-- 引入 Babel 讓瀏覽器可以編譯 JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <style>
@@ -30,16 +26,9 @@
   </style>
 </head>
 <body class="bg-[#F5F5F0] overflow-x-hidden text-[#5C636A] font-sans">
-  
   <div id="root"></div>
 
-  <!-- React 應用程式代碼 -->
   <script type="text/babel" data-type="module">
-    // ====== Google Sheets (GAS) 串接網址設定 ======
-    // TODO: 部署前，請將您部署好的 Google Apps Script Web App 網址貼在下方引號內
-    const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxKXHlDFizkcCMc9cDlMh74hLmUKMpVxS-5YG50J0jkQqTgRzSOQVNHfgOExO4wsxTyBQ/exec'; 
-    // ==============================================
-
     import React, { useState, useEffect } from 'react';
     import { createRoot } from 'react-dom/client';
     import { 
@@ -47,18 +36,26 @@
       CalendarCheck, Settings, BookOpen, ChevronLeft, ChevronRight, ListPlus
     } from 'lucide-react';
 
+    // ====== Google Sheets (GAS) 串接網址設定 ======
+    // TODO: 務必將您的 GAS 網址貼在下方引號內！
+    const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxKXHlDFizkcCMc9cDlMh74hLmUKMpVxS-5YG50J0jkQqTgRzSOQVNHfgOExO4wsxTyBQ/exec'; 
+    // ==============================================
+
     function App() {
       const [activeTab, setActiveTab] = useState('daily');
       const [currentDate, setCurrentDate] = useState(new Date());
 
-      // 資料狀態 (預設為空)
       const [medLibrary, setMedLibrary] = useState([]);
       const [medications, setMedications] = useState([]);
       const [dailyRecords, setDailyRecords] = useState({});
+      
+      const [isLoading, setIsLoading] = useState(false);
 
       // ====== 雲端讀寫功能區塊 ======
+      // 網頁載入時讀取資料
       useEffect(() => {
         if(!GAS_API_URL) return;
+        setIsLoading(true);
         fetch(GAS_API_URL)
           .then(res => res.json())
           .then(data => {
@@ -66,18 +63,31 @@
             if(data.medications) setMedications(data.medications);
             if(data.dailyRecords) setDailyRecords(data.dailyRecords);
           })
-          .catch(err => console.error("讀取失敗", err));
+          .catch(err => console.error("讀取失敗，請檢查網址或權限", err))
+          .finally(() => setIsLoading(false));
       }, []);
 
+      // 儲存資料到雲端
       const syncDataToCloud = (newLib, newMeds, newRecords) => {
-        if(!GAS_API_URL) return;
+        if(!GAS_API_URL) {
+          console.warn("未設定 GAS 網址，僅儲存在暫存區");
+          return;
+        }
+        
+        const payload = {
+          medLibrary: newLib || medLibrary,
+          medications: newMeds || medications,
+          dailyRecords: newRecords || dailyRecords
+        };
+
+        // 針對 Google Apps Script 調整的 Fetch 參數 (解決跨域阻擋問題)
         fetch(GAS_API_URL, {
           method: 'POST',
-          body: JSON.stringify({
-            medLibrary: newLib || medLibrary,
-            medications: newMeds || medications,
-            dailyRecords: newRecords || dailyRecords
-          })
+          redirect: 'follow', // 重要：GAS 會轉址，必須 follow
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8', // 重要：避免觸發複雜 CORS preflight
+          },
+          body: JSON.stringify(payload)
         }).catch(err => console.error("儲存失敗", err));
       };
       // ==============================================
@@ -86,7 +96,6 @@
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       };
 
-      // --- 藥品庫邏輯 ---
       const [newLibItem, setNewLibItem] = useState('');
       const handleLibAdd = (e) => {
         e.preventDefault();
@@ -102,7 +111,6 @@
         syncDataToCloud(newLib, null, null);
       };
 
-      // --- 藥單設定邏輯 ---
       const [setupData, setSetupData] = useState({
         name: '', appearance: '', efficacy: '',
         times: { morning: false, noon: false, night: false, bed: false },
@@ -158,7 +166,6 @@
         syncDataToCloud(null, newMeds, null);
       };
 
-      // --- 打卡邏輯 ---
       const changeDate = (days) => {
         const d = new Date(currentDate);
         d.setDate(d.getDate() + days);
@@ -177,7 +184,6 @@
         syncDataToCloud(null, null, newRecords);
       };
 
-      // UI 渲染函數
       const renderLibraryView = () => (
         <div className="space-y-6 pb-24">
           <header className="text-center pt-6 pb-2">
@@ -301,6 +307,8 @@
             </header>
             
             <div className="px-4 space-y-6">
+              {isLoading && <div className="text-center text-sm text-[#A3B1A6] py-4">正在同步雲端資料...</div>}
+              
               {timeBlocks.map(({ key, label }) => {
                 const medsInThisTime = todaysMeds.filter(m => m.times[key]);
                 if (medsInThisTime.length === 0) return null;
@@ -330,7 +338,7 @@
                   </div>
                 );
               })}
-              {todaysMeds.length === 0 && <div className="text-center py-16 text-[#B4A9A2]">這天沒有排程藥物唷！</div>}
+              {!isLoading && todaysMeds.length === 0 && <div className="text-center py-16 text-[#B4A9A2]">這天沒有排程藥物唷！</div>}
             </div>
           </div>
         );
@@ -342,7 +350,6 @@
           {activeTab === 'setup' && renderSetupView()}
           {activeTab === 'library' && renderLibraryView()}
 
-          {/* 底部導航列 */}
           <nav className="fixed bottom-0 w-full bg-white border-t border-[#E5E4DE] pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.03)] z-50">
             <div className="flex justify-around items-center p-2">
               <button onClick={() => setActiveTab('daily')} className={`flex flex-col items-center p-2 w-20 transition-colors ${activeTab === 'daily' ? 'text-[#8A9A95]' : 'text-[#C4CACA]'}`}>
