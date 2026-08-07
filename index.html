@@ -142,7 +142,17 @@
       const [customDateStr, setCustomDateStr] = useState('');
 
       const [editingMedId, setEditingMedId] = useState(null);
+      const [editingTimeKey, setEditingTimeKey] = useState(null); // 新增：紀錄正在編輯哪個時段
       const [editDosageValue, setEditDosageValue] = useState('');
+
+      // 新增：取得特定時段的劑量 (若無設定則抓預設值)
+      const getMedDosage = (med, timeKey) => {
+        const defaultDosage = med.type === 'injection' ? '1支' : med.type === 'suppository' ? '1次' : '1顆';
+        if (timeKey && med.dosages && med.dosages[timeKey]) {
+          return med.dosages[timeKey]; // 優先抓取特定時段的劑量
+        }
+        return med.dosage || defaultDosage; // 否則抓取整體預設劑量
+      };
 
       const next7Days = Array.from({ length: 7 }, (_, i) => {
         const d = new Date();
@@ -210,21 +220,45 @@
         syncDataToCloud(null, newMeds, null);
       };
 
-      const handleSetupEditStart = (med) => {
+      const handleSetupEditStart = (med, timeKey = 'all') => {
         setEditingMedId(med.id);
-        const defaultDosage = med.type === 'injection' ? '1支' : med.type === 'suppository' ? '1次' : '1顆';
-        setEditDosageValue(med.dosage || defaultDosage);
+        setEditingTimeKey(timeKey); // 記錄目前正在編輯哪個時段
+        
+        const currentDosage = getMedDosage(med, timeKey === 'all' ? null : timeKey);
+        // 自動過濾掉中文字，只留下數字或小數點
+        const numStr = currentDosage.replace(/[^0-9.]/g, '') || '1';
+        setEditDosageValue(numStr);
       };
 
       const handleSetupEditSave = (id) => {
-        const newMeds = medications.map(m => m.id === id ? { ...m, dosage: editDosageValue } : m);
+        const med = medications.find(m => m.id === id);
+        if (!med) return;
+        const unit = med.type === 'injection' ? '支' : med.type === 'suppository' ? '次' : '顆';
+        // 儲存時，自動將數字與對應的單位組合回去
+        const finalDosage = editDosageValue ? `${editDosageValue}${unit}` : `1${unit}`;
+        
+        const newMeds = medications.map(m => {
+          if (m.id === id) {
+            if (editingTimeKey === 'all') {
+              return { ...m, dosage: finalDosage }; // 修改整體預設
+            } else {
+              const newDosages = { ...(m.dosages || {}) };
+              newDosages[editingTimeKey] = finalDosage; // 獨立修改該時段的劑量
+              return { ...m, dosages: newDosages };
+            }
+          }
+          return m;
+        });
+        
         setMedications(newMeds);
         setEditingMedId(null);
+        setEditingTimeKey(null);
         syncDataToCloud(null, newMeds, null);
       };
 
       const handleSetupEditCancel = () => {
         setEditingMedId(null);
+        setEditingTimeKey(null);
       };
 
       // 新增：從特定日期移除排程 (供今日打卡與月曆使用，不影響其他天的紀錄)
@@ -393,14 +427,15 @@
             <h3 className="font-medium text-[#8A9A95] pl-1">進行中與未來排程</h3>
             {/* 修改：只顯示還有「今天以後」日期的排程 */}
             {medications.filter(med => med.days.some(d => d >= formatDateKey(new Date()))).map(med => {
+              const isEditingThisGlobal = editingMedId === med.id && editingTimeKey === 'all';
               const defaultDosage = med.type === 'injection' ? '1支' : med.type === 'suppository' ? '1次' : '1顆';
               return (
                 <div key={med.id} className="p-4 bg-white rounded-xl border border-[#E5E4DE] relative">
                   
                   {/* ====== 右上角按鈕區 (編輯與刪除) ====== */}
                   <div className="absolute top-3 right-3 flex gap-3">
-                    {editingMedId !== med.id && (
-                      <button onClick={() => handleSetupEditStart(med)} className="text-[#8A9A95] hover:text-[#5C636A] transition-colors p-1" title="編輯用量">
+                    {!isEditingThisGlobal && (
+                      <button onClick={() => handleSetupEditStart(med, 'all')} className="text-[#8A9A95] hover:text-[#5C636A] transition-colors p-1" title="編輯預設用量">
                         <i className="fa-solid fa-pen text-lg"></i>
                       </button>
                     )}
@@ -417,15 +452,17 @@
                     </span>
                     
                     {/* 編輯狀態 */}
-                    {editingMedId === med.id ? (
-                      <div className="mt-2 flex items-center gap-2">
+                    {isEditingThisGlobal ? (
+                      <div className="flex items-center gap-2 mt-2">
                         <input 
-                          type="text" 
+                          type="number" 
+                          inputMode="decimal"
                           value={editDosageValue} 
                           onChange={(e) => setEditDosageValue(e.target.value)} 
-                          className="w-24 p-1.5 text-sm bg-[#FAFAFA] border border-[#B3C0BA] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#8A9A95]"
-                          placeholder="修改用量"
+                          className="w-16 p-1.5 text-sm bg-[#FAFAFA] border border-[#B3C0BA] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#8A9A95] text-center"
+                          placeholder="數量"
                         />
+                        <span className="text-sm text-[#8A9A95] font-medium">{med.type === 'injection' ? '支' : med.type === 'suppository' ? '次' : '顆'}</span>
                         <button onClick={() => handleSetupEditSave(med.id)} className="text-xs bg-[#8A9A95] text-white px-3 py-2 rounded-lg hover:bg-[#788883]">儲存</button>
                         <button onClick={handleSetupEditCancel} className="text-xs bg-[#E5E4DE] text-[#5C636A] px-3 py-2 rounded-lg hover:bg-[#D6DAD8]">取消</button>
                       </div>
@@ -479,7 +516,9 @@
                       const isTaken = dailyRecords[currentDateKey]?.[recordKey] || false;
                       const isInjection = med.type === 'injection';
                       const isSuppository = med.type === 'suppository';
-                      const defaultDosage = isInjection ? '1支' : isSuppository ? '1次' : '1顆';
+                      
+                      const displayDosage = getMedDosage(med, key);
+                      const isEditingThisSlot = editingMedId === med.id && editingTimeKey === key;
                       
                       let mainColorClass = isTaken ? (isInjection ? 'bg-[#D98A8A] border-[#D98A8A] text-white' : isSuppository ? 'bg-[#95A1C3] border-[#95A1C3] text-white' : 'bg-[#A3B1A6] border-[#A3B1A6] text-white') : 'border-[#B3C0BA] text-transparent';
                       let textColorClass = isInjection ? 'text-[#D98A8A]' : isSuppository ? 'text-[#95A1C3]' : 'text-[#8A9A95]';
@@ -501,11 +540,11 @@
                                 {isSuppository && !isTaken && <span className={`text-[10px] ${badgeBg} ${textColorClass} px-2 py-0.5 rounded-full font-bold`}>塞劑</span>}
                               </h4>
                               
-                              {editingMedId !== med.id && (
+                              {!isEditingThisSlot && (
                                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#8F9CA4] mt-0.5">
                                   <span className={`flex items-center gap-1 font-semibold ${textColorClass}`}>
                                     <i className={`${iconClass} text-xs`}></i> 
-                                    {med.dosage || defaultDosage}
+                                    {displayDosage}
                                   </span>
                                   {med.appearance && <span className="flex items-center gap-1"><i className={isInjection || isSuppository ? "fa-solid fa-info-circle text-xs" : "fa-solid fa-font text-xs"}></i> {med.appearance}</span>}
                                   {med.efficacy && <span className="flex items-center gap-1"><i className="fa-solid fa-circle-info text-xs"></i> {med.efficacy}</span>}
@@ -515,9 +554,12 @@
                           </div>
 
                           {/* 右側：編輯與單日刪除按鈕 */}
-                          {editingMedId === med.id ? (
+                          {isEditingThisSlot ? (
                             <div className="flex flex-col gap-1 items-end ml-2">
-                              <input type="text" value={editDosageValue} onChange={(e) => setEditDosageValue(e.target.value)} className="w-16 p-1 text-sm bg-[#FAFAFA] border border-[#B3C0BA] rounded focus:outline-none" placeholder="修改"/>
+                              <div className="flex items-center gap-1">
+                                <input type="number" inputMode="decimal" value={editDosageValue} onChange={(e) => setEditDosageValue(e.target.value)} className="w-12 p-1 text-sm bg-[#FAFAFA] border border-[#B3C0BA] rounded focus:outline-none text-center" placeholder="數量"/>
+                                <span className="text-xs text-[#8A9A95] font-medium">{isInjection ? '支' : isSuppository ? '次' : '顆'}</span>
+                              </div>
                               <div className="flex gap-1">
                                 <button onClick={() => handleSetupEditSave(med.id)} className="text-[10px] bg-[#8A9A95] text-white px-2 py-1 rounded hover:bg-[#788883]">儲存</button>
                                 <button onClick={handleSetupEditCancel} className="text-[10px] bg-[#E5E4DE] text-[#5C636A] px-2 py-1 rounded hover:bg-[#D6DAD8]">取消</button>
@@ -525,7 +567,7 @@
                             </div>
                           ) : (
                             <div className="flex gap-2 pl-2 border-l border-[#F0F0F0]">
-                              <button onClick={() => handleSetupEditStart(med)} className="text-[#C4CACA] hover:text-[#8A9A95] p-1 transition-colors" title="編輯用量">
+                              <button onClick={() => handleSetupEditStart(med, key)} className="text-[#C4CACA] hover:text-[#8A9A95] p-1 transition-colors" title="編輯用量">
                                 <i className="fa-solid fa-pen text-sm"></i>
                               </button>
                               <button onClick={() => handleRemoveDate(med.id, currentDateKey)} className="text-[#C4CACA] hover:text-[#D98A8A] p-1 transition-colors" title="移除今日排程">
@@ -635,7 +677,9 @@
                           const isTaken = dailyRecords[selectedDateKey]?.[recordKey] || false;
                           const isInjection = med.type === 'injection';
                           const isSuppository = med.type === 'suppository';
-                          const defaultDosage = isInjection ? '1支' : isSuppository ? '1次' : '1顆';
+                          
+                          const displayDosage = getMedDosage(med, key);
+                          const isEditingThisSlot = editingMedId === med.id && editingTimeKey === key;
                           
                           let mainColorClass = isTaken ? (isInjection ? 'bg-[#D98A8A] border-[#D98A8A] text-white' : isSuppository ? 'bg-[#95A1C3] border-[#95A1C3] text-white' : 'bg-[#A3B1A6] border-[#A3B1A6] text-white') : 'border-[#C4CACA] text-transparent group-hover:border-[#A3B1A6]';
                           let textColorClass = isTaken ? 'text-[#B4A9A2]' : (isInjection ? 'text-[#D98A8A]' : isSuppository ? 'text-[#95A1C3]' : 'text-[#8A9A95]');
@@ -652,24 +696,25 @@
                                 <div className={`text-base font-medium transition-all flex items-center gap-1.5 truncate ${isTaken ? 'line-through text-[#B4A9A2] opacity-70' : 'text-[#5C636A]'}`}>
                                   {(isInjection || isSuppository) && <i className={`${iconClass} text-xs ${textColorClass}`}></i>}
                                   {med.name} 
-                                  {editingMedId !== med.id && (
+                                  {!isEditingThisSlot && (
                                     <span className={`text-sm ${textColorClass} font-semibold flex-shrink-0`}>
-                                      ({med.dosage || defaultDosage})
+                                      ({displayDosage})
                                     </span>
                                   )}
                                 </div>
                               </div>
 
                               {/* 月曆右側：編輯與單日刪除按鈕 */}
-                              {editingMedId === med.id ? (
+                              {isEditingThisSlot ? (
                                 <div className="flex items-center gap-1 ml-2">
-                                  <input type="text" value={editDosageValue} onChange={(e) => setEditDosageValue(e.target.value)} className="w-12 p-1 text-xs bg-[#FAFAFA] border border-[#B3C0BA] rounded" />
+                                  <input type="number" inputMode="decimal" value={editDosageValue} onChange={(e) => setEditDosageValue(e.target.value)} className="w-10 p-1 text-xs bg-[#FAFAFA] border border-[#B3C0BA] rounded text-center" />
+                                  <span className="text-xs text-[#8A9A95] font-medium mr-1">{isInjection ? '支' : isSuppository ? '次' : '顆'}</span>
                                   <button onClick={() => handleSetupEditSave(med.id)} className="text-[10px] bg-[#8A9A95] text-white px-2 py-1 rounded">存</button>
                                   <button onClick={handleSetupEditCancel} className="text-[10px] bg-[#E5E4DE] text-[#5C636A] px-2 py-1 rounded">消</button>
                                 </div>
                               ) : (
                                 <div className="flex gap-2">
-                                  <button onClick={() => handleSetupEditStart(med)} className="text-[#E5E4DE] hover:text-[#8A9A95] p-1"><i className="fa-solid fa-pen text-xs"></i></button>
+                                  <button onClick={() => handleSetupEditStart(med, key)} className="text-[#E5E4DE] hover:text-[#8A9A95] p-1"><i className="fa-solid fa-pen text-xs"></i></button>
                                   <button onClick={() => handleRemoveDate(med.id, selectedDateKey)} className="text-[#E5E4DE] hover:text-[#D98A8A] p-1"><i className="fa-solid fa-trash-can text-xs"></i></button>
                                 </div>
                               )}
