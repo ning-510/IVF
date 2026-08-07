@@ -6,11 +6,9 @@
   <title>療程用藥紀錄</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- 改用最穩定的傳統 CDN 載入 React -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- 穩定的 FontAwesome 圖示庫 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
   <style>
@@ -18,6 +16,16 @@
     .hide-scroll::-webkit-scrollbar { display: none; }
     .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
     .pb-safe { padding-bottom: env(safe-area-inset-bottom, 20px); }
+    /* 自訂浮動提示動畫 */
+    @keyframes fadeInOut {
+      0% { opacity: 0; transform: translate(-50%, -20px); }
+      10% { opacity: 1; transform: translate(-50%, 0); }
+      90% { opacity: 1; transform: translate(-50%, 0); }
+      100% { opacity: 0; transform: translate(-50%, -20px); }
+    }
+    .animate-toast {
+      animation: fadeInOut 3s forwards;
+    }
   </style>
 </head>
 <body class="bg-[#F5F5F0] overflow-x-hidden text-[#5C636A] font-sans">
@@ -45,6 +53,14 @@
       const [medications, setMedications] = useState([]);
       const [dailyRecords, setDailyRecords] = useState({});
       const [isLoading, setIsLoading] = useState(true);
+
+      // 自訂訊息提示狀態 (取代 alert)
+      const [toastMsg, setToastMsg] = useState('');
+
+      const showMessage = (msg) => {
+        setToastMsg(msg);
+        setTimeout(() => setToastMsg(''), 3000);
+      };
 
       useEffect(() => {
         if(!GAS_API_URL) {
@@ -83,10 +99,9 @@
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       };
 
-      // --- 藥品庫邏輯 ---
       const [newLibName, setNewLibName] = useState('');
       const [newLibApp, setNewLibApp] = useState('');
-      const [newLibType, setNewLibType] = useState('pill'); // 新增：預設為藥物 (pill)
+      const [newLibType, setNewLibType] = useState('pill'); // pill, injection, suppository
       
       const handleLibAdd = (e) => {
         e.preventDefault();
@@ -96,18 +111,18 @@
           (typeof item === 'string' ? item : item.name) === newLibName.trim()
         );
         if (exists) {
-          alert('藥品已存在於庫存中！');
+          showMessage('藥品已存在於庫存中！');
           return;
         }
 
-        // 新增 type 屬性
         const newItem = { name: newLibName.trim(), appearance: newLibApp.trim(), type: newLibType };
         const newLib = [...medLibrary, newItem];
         setMedLibrary(newLib);
         setNewLibName('');
         setNewLibApp('');
-        setNewLibType('pill'); // 重置為藥物
+        setNewLibType('pill');
         syncDataToCloud(newLib, null, null);
+        showMessage('已加入藥品庫！');
       };
 
       const handleLibDelete = (nameToDelete) => {
@@ -119,7 +134,6 @@
         syncDataToCloud(newLib, null, null);
       };
 
-      // --- 藥單設定邏輯 ---
       const [setupData, setSetupData] = useState({
         name: '', appearance: '', efficacy: '', dosage: '', type: 'pill',
         times: { morning: false, noon: false, night: false, bed: false },
@@ -127,7 +141,6 @@
       });
       const [customDateStr, setCustomDateStr] = useState('');
 
-      // 新增：編輯排程劑量的狀態
       const [editingMedId, setEditingMedId] = useState(null);
       const [editDosageValue, setEditDosageValue] = useState('');
 
@@ -143,7 +156,6 @@
           const selectedMed = medLibrary.find(item => (typeof item === 'string' ? item : item.name) === value);
           const defaultApp = selectedMed && typeof selectedMed === 'object' ? selectedMed.appearance : '';
           const defaultType = selectedMed && typeof selectedMed === 'object' && selectedMed.type ? selectedMed.type : 'pill';
-          // 自動帶入類型
           setSetupData(prev => ({ ...prev, name: value, appearance: defaultApp || prev.appearance, type: defaultType }));
         } else {
           setSetupData(prev => ({ ...prev, [name]: value }));
@@ -171,11 +183,10 @@
 
       const handleSetupSubmit = (e) => {
         e.preventDefault();
-        if (!setupData.name) return alert('請選擇藥品');
-        if (!Object.values(setupData.times).some(v => v)) return alert('請至少選擇一個時段');
-        if (setupData.days.length === 0) return alert('請至少選擇一天');
+        if (!setupData.name) return showMessage('請選擇藥品');
+        if (!Object.values(setupData.times).some(v => v)) return showMessage('請至少選擇一個時段');
+        if (setupData.days.length === 0) return showMessage('請至少選擇一天');
 
-        // 根據不同類型給予不同的預設用量單位
         let defaultDosage = '1顆';
         if (setupData.type === 'injection') defaultDosage = '1支';
         if (setupData.type === 'suppository') defaultDosage = '1次';
@@ -190,6 +201,7 @@
           days: []
         });
         syncDataToCloud(null, newMeds, null);
+        showMessage('排程新增成功！');
       };
 
       const handleSetupDelete = (id) => {
@@ -198,7 +210,6 @@
         syncDataToCloud(null, newMeds, null);
       };
 
-      // 新增：開始編輯、儲存與取消的邏輯
       const handleSetupEditStart = (med) => {
         setEditingMedId(med.id);
         const defaultDosage = med.type === 'injection' ? '1支' : med.type === 'suppository' ? '1次' : '1顆';
@@ -216,7 +227,19 @@
         setEditingMedId(null);
       };
 
-      // --- 打卡邏輯 ---
+      // 新增：從特定日期移除排程 (供今日打卡與月曆使用，不影響其他天的紀錄)
+      const handleRemoveDate = (id, dateStr) => {
+        const newMeds = medications.map(m => {
+          if (m.id === id) {
+            return { ...m, days: m.days.filter(d => d !== dateStr) };
+          }
+          return m;
+        }).filter(m => m.days.length > 0); // 如果天數扣到變 0，就完全刪除
+        setMedications(newMeds);
+        syncDataToCloud(null, newMeds, null);
+        showMessage('已從此日移除排程！');
+      };
+
       const changeDate = (days) => {
         const d = new Date(currentDate);
         d.setDate(d.getDate() + days);
@@ -249,7 +272,6 @@
           </header>
           <section className="bg-white p-5 rounded-2xl shadow-sm border border-[#E5E4DE] mx-4">
             <form onSubmit={handleLibAdd} className="space-y-3">
-              {/* 新增：類型選擇按鈕 (分為三種) */}
               <div className="flex gap-2 mb-2">
                 <button type="button" onClick={() => setNewLibType('pill')} className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors border ${newLibType === 'pill' ? 'bg-[#A3B1A6] text-white border-[#A3B1A6]' : 'bg-[#FAFAFA] text-[#8F9CA4] border-[#E5E4DE]'}`}>
                   <i className="fa-solid fa-pills mr-1"></i> 口服
@@ -368,25 +390,33 @@
           </section>
           
           <div className="mx-4 space-y-3">
-            <h3 className="font-medium text-[#8A9A95] pl-1">已設定排程</h3>
-            {medications.map(med => {
+            <h3 className="font-medium text-[#8A9A95] pl-1">進行中與未來排程</h3>
+            {/* 修改：只顯示還有「今天以後」日期的排程 */}
+            {medications.filter(med => med.days.some(d => d >= formatDateKey(new Date()))).map(med => {
               const defaultDosage = med.type === 'injection' ? '1支' : med.type === 'suppository' ? '1次' : '1顆';
               return (
                 <div key={med.id} className="p-4 bg-white rounded-xl border border-[#E5E4DE] relative">
-                  {/* 右上角操作按鈕區 (編輯與刪除) */}
-                  <div className="absolute top-4 right-4 flex gap-4">
+                  
+                  {/* ====== 右上角按鈕區 (編輯與刪除) ====== */}
+                  <div className="absolute top-3 right-3 flex gap-3">
                     {editingMedId !== med.id && (
-                      <button onClick={() => handleSetupEditStart(med)} className="text-[#B3C0BA] hover:text-[#8A9A95] transition-colors flex items-center justify-center">
-                        <i className="fa-solid fa-pen"></i>
+                      <button onClick={() => handleSetupEditStart(med)} className="text-[#8A9A95] hover:text-[#5C636A] transition-colors p-1" title="編輯用量">
+                        <i className="fa-solid fa-pen text-lg"></i>
                       </button>
                     )}
-                    <button onClick={() => handleSetupDelete(med.id)} className="text-[#D1C8C1] hover:text-[#D98A8A] transition-colors flex items-center justify-center">
+                    <button onClick={() => handleSetupDelete(med.id)} className="text-[#D1C8C1] hover:text-[#D98A8A] transition-colors p-1" title="刪除此排程">
                       <i className="fa-solid fa-trash-can text-lg"></i>
                     </button>
                   </div>
+                  {/* ================================== */}
                   
-                  <div className="font-medium text-[#4A5568] pr-16">
-                    {med.name} 
+                  <div className="font-medium text-[#4A5568] pr-20">
+                    <span className="flex items-center gap-2">
+                      {med.type === 'injection' ? <i className="fa-solid fa-syringe text-[#D98A8A]"></i> : med.type === 'suppository' ? <i className="fa-solid fa-capsules text-[#95A1C3]"></i> : <i className="fa-solid fa-pills text-[#A3B1A6]"></i>}
+                      {med.name}
+                    </span>
+                    
+                    {/* 編輯狀態 */}
                     {editingMedId === med.id ? (
                       <div className="mt-2 flex items-center gap-2">
                         <input 
@@ -400,8 +430,8 @@
                         <button onClick={handleSetupEditCancel} className="text-xs bg-[#E5E4DE] text-[#5C636A] px-3 py-2 rounded-lg hover:bg-[#D6DAD8]">取消</button>
                       </div>
                     ) : (
-                      <span className="text-sm text-[#8A9A95] ml-1">
-                        ({med.dosage || defaultDosage})
+                      <span className="text-sm text-[#8A9A95] block mt-1">
+                        用量: {med.dosage || defaultDosage}
                       </span>
                     )}
                   </div>
@@ -454,28 +484,55 @@
                       let mainColorClass = isTaken ? (isInjection ? 'bg-[#D98A8A] border-[#D98A8A] text-white' : isSuppository ? 'bg-[#95A1C3] border-[#95A1C3] text-white' : 'bg-[#A3B1A6] border-[#A3B1A6] text-white') : 'border-[#B3C0BA] text-transparent';
                       let textColorClass = isInjection ? 'text-[#D98A8A]' : isSuppository ? 'text-[#95A1C3]' : 'text-[#8A9A95]';
                       let iconClass = isInjection ? "fa-solid fa-syringe" : isSuppository ? "fa-solid fa-capsules" : "fa-solid fa-capsules";
-                      let badgeBg = isInjection ? "bg-[#FFF0F0]" : "bg-[#F0F2F8]";
+                      let badgeBg = isInjection ? "bg-[#FFF0F0]" : isSuppository ? "bg-[#F0F2F8]" : "bg-[#F0F5F2]";
                       
                       return (
-                        <div key={recordKey} onClick={() => toggleDailyRecord(med.id, key)} className={`flex items-center gap-4 p-4 rounded-2xl border transition-all cursor-pointer ${isTaken ? 'bg-[#F9F9F8] border-[#E5E4DE] opacity-60' : 'bg-white border-[#D6DAD8] shadow-sm hover:shadow-md'}`}>
-                          <div className={`flex-shrink-0 w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${mainColorClass}`}>
-                            <i className="fa-solid fa-check text-lg"></i>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className={`font-medium text-lg truncate flex items-center gap-2 ${isTaken ? 'line-through text-[#9BA3A0]' : 'text-[#4A5568]'}`}>
-                              {med.name}
-                              {isInjection && !isTaken && <span className={`text-[10px] ${badgeBg} ${textColorClass} px-2 py-0.5 rounded-full font-bold`}>針劑</span>}
-                              {isSuppository && !isTaken && <span className={`text-[10px] ${badgeBg} ${textColorClass} px-2 py-0.5 rounded-full font-bold`}>塞劑</span>}
-                            </h4>
-                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#8F9CA4] mt-0.5">
-                              <span className={`flex items-center gap-1 font-semibold ${textColorClass}`}>
-                                <i className={`${iconClass} text-xs`}></i> 
-                                {med.dosage || defaultDosage}
-                              </span>
-                              {med.appearance && <span className="flex items-center gap-1"><i className={isInjection || isSuppository ? "fa-solid fa-info-circle text-xs" : "fa-solid fa-font text-xs"}></i> {med.appearance}</span>}
-                              {med.efficacy && <span className="flex items-center gap-1"><i className="fa-solid fa-circle-info text-xs"></i> {med.efficacy}</span>}
+                        <div key={recordKey} className={`flex items-center gap-3 p-4 rounded-2xl border transition-all ${isTaken ? 'bg-[#F9F9F8] border-[#E5E4DE] opacity-60' : 'bg-white border-[#D6DAD8] shadow-sm hover:shadow-md'}`}>
+                          
+                          {/* 左側：可點擊打卡的區塊 */}
+                          <div onClick={() => toggleDailyRecord(med.id, key)} className="flex flex-1 items-center gap-3 cursor-pointer min-w-0">
+                            <div className={`flex-shrink-0 w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${mainColorClass}`}>
+                              <i className="fa-solid fa-check text-lg"></i>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className={`font-medium text-lg truncate flex items-center gap-2 ${isTaken ? 'line-through text-[#9BA3A0]' : 'text-[#4A5568]'}`}>
+                                {med.name}
+                                {isInjection && !isTaken && <span className={`text-[10px] ${badgeBg} ${textColorClass} px-2 py-0.5 rounded-full font-bold`}>針劑</span>}
+                                {isSuppository && !isTaken && <span className={`text-[10px] ${badgeBg} ${textColorClass} px-2 py-0.5 rounded-full font-bold`}>塞劑</span>}
+                              </h4>
+                              
+                              {editingMedId !== med.id && (
+                                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#8F9CA4] mt-0.5">
+                                  <span className={`flex items-center gap-1 font-semibold ${textColorClass}`}>
+                                    <i className={`${iconClass} text-xs`}></i> 
+                                    {med.dosage || defaultDosage}
+                                  </span>
+                                  {med.appearance && <span className="flex items-center gap-1"><i className={isInjection || isSuppository ? "fa-solid fa-info-circle text-xs" : "fa-solid fa-font text-xs"}></i> {med.appearance}</span>}
+                                  {med.efficacy && <span className="flex items-center gap-1"><i className="fa-solid fa-circle-info text-xs"></i> {med.efficacy}</span>}
+                                </div>
+                              )}
                             </div>
                           </div>
+
+                          {/* 右側：編輯與單日刪除按鈕 */}
+                          {editingMedId === med.id ? (
+                            <div className="flex flex-col gap-1 items-end ml-2">
+                              <input type="text" value={editDosageValue} onChange={(e) => setEditDosageValue(e.target.value)} className="w-16 p-1 text-sm bg-[#FAFAFA] border border-[#B3C0BA] rounded focus:outline-none" placeholder="修改"/>
+                              <div className="flex gap-1">
+                                <button onClick={() => handleSetupEditSave(med.id)} className="text-[10px] bg-[#8A9A95] text-white px-2 py-1 rounded hover:bg-[#788883]">儲存</button>
+                                <button onClick={handleSetupEditCancel} className="text-[10px] bg-[#E5E4DE] text-[#5C636A] px-2 py-1 rounded hover:bg-[#D6DAD8]">取消</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-2 pl-2 border-l border-[#F0F0F0]">
+                              <button onClick={() => handleSetupEditStart(med)} className="text-[#C4CACA] hover:text-[#8A9A95] p-1 transition-colors" title="編輯用量">
+                                <i className="fa-solid fa-pen text-sm"></i>
+                              </button>
+                              <button onClick={() => handleRemoveDate(med.id, currentDateKey)} className="text-[#C4CACA] hover:text-[#D98A8A] p-1 transition-colors" title="移除今日排程">
+                                <i className="fa-solid fa-trash-can text-sm"></i>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -488,7 +545,6 @@
         );
       };
 
-      // --- 月曆視圖 (正圓形設計版) ---
       const renderCalendarView = () => {
         const year = currentCalMonth.getFullYear();
         const month = currentCalMonth.getMonth();
@@ -511,7 +567,6 @@
 
         return (
           <div className="flex flex-col h-screen pb-[80px]">
-            {/* 上半部：月曆區塊 */}
             <div className="flex-none bg-white pt-6 pb-4 px-4 shadow-sm z-10 relative">
               <div className="flex justify-between items-center mb-4">
                 <button onClick={prevMonth} className="w-10 h-10 flex items-center justify-center text-[#8A9A95] hover:bg-[#F5F5F0] rounded-full transition-colors"><i className="fa-solid fa-chevron-left"></i></button>
@@ -526,12 +581,10 @@
               </div>
               
               <div className="grid grid-cols-7 gap-y-2 gap-x-1">
-                {/* 填補月初空白 */}
                 {Array.from({ length: firstDay }).map((_, i) => (
                   <div key={`empty-${i}`} className="h-10"></div>
                 ))}
                 
-                {/* 渲染日期 */}
                 {Array.from({ length: daysInMonth }).map((_, i) => {
                   const date = i + 1;
                   const currentIterDate = new Date(year, month, date);
@@ -540,12 +593,10 @@
                   const isSelected = selectedCalDate.getDate() === date && selectedCalDate.getMonth() === month && selectedCalDate.getFullYear() === year;
                   const isToday = new Date().getDate() === date && new Date().getMonth() === month && new Date().getFullYear() === year;
                   
-                  // 檢查這天有沒有排藥
                   const hasMeds = medications.some(med => med.days.includes(iterDateKey));
 
                   return (
                     <div key={date} className="flex justify-center items-center h-11 w-full">
-                      {/* 將按鈕外觀設為完美的正圓形 (w-10 h-10, rounded-full) */}
                       <button 
                         onClick={() => setSelectedCalDate(currentIterDate)}
                         className={`w-10 h-10 flex flex-col items-center justify-center rounded-full relative transition-all mx-auto
@@ -554,7 +605,6 @@
                         `}
                       >
                         <span className="text-[15px] relative z-10 leading-none mb-1">{date}</span>
-                        {/* 藥物小灰點指示器 */}
                         {hasMeds && (
                           <span className={`w-1.5 h-1.5 rounded-full absolute bottom-[6px] ${isSelected ? 'bg-white' : 'bg-[#B3C0BA]'}`}></span>
                         )}
@@ -565,7 +615,6 @@
               </div>
             </div>
 
-            {/* 下半部：當日用藥清單 (可滑動) */}
             <div className="flex-1 bg-[#F5F5F0] overflow-y-auto px-4 py-4 hide-scroll">
               <h3 className="font-bold text-[#8A9A95] mb-3 flex items-center gap-2">
                 <i className="fa-regular fa-calendar-check text-sm"></i> 
@@ -593,23 +642,37 @@
                           let iconClass = isInjection ? "fa-solid fa-syringe" : isSuppository ? "fa-solid fa-capsules" : "fa-solid fa-capsules";
                           
                           return (
-                            <div 
-                              key={recordKey} 
-                              onClick={() => toggleDailyRecord(med.id, key, selectedDateKey)}
-                              className="flex items-center gap-3 cursor-pointer group"
-                            >
-                              {/* 圓形 Checkbox */}
-                              <div className={`w-6 h-6 flex-shrink-0 rounded-full border-[1.5px] flex items-center justify-center transition-all ${mainColorClass}`}>
-                                <i className="fa-solid fa-check text-xs"></i>
+                            <div key={recordKey} className="flex items-center justify-between gap-2 group">
+                              
+                              {/* 月曆左側：可點擊打卡的區塊 */}
+                              <div onClick={() => toggleDailyRecord(med.id, key, selectedDateKey)} className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
+                                <div className={`w-6 h-6 flex-shrink-0 rounded-full border-[1.5px] flex items-center justify-center transition-all ${mainColorClass}`}>
+                                  <i className="fa-solid fa-check text-xs"></i>
+                                </div>
+                                <div className={`text-base font-medium transition-all flex items-center gap-1.5 truncate ${isTaken ? 'line-through text-[#B4A9A2] opacity-70' : 'text-[#5C636A]'}`}>
+                                  {(isInjection || isSuppository) && <i className={`${iconClass} text-xs ${textColorClass}`}></i>}
+                                  {med.name} 
+                                  {editingMedId !== med.id && (
+                                    <span className={`text-sm ${textColorClass} font-semibold flex-shrink-0`}>
+                                      ({med.dosage || defaultDosage})
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                              {/* 藥品名稱 (打卡後顯示刪除線) */}
-                              <div className={`text-base font-medium transition-all flex items-center gap-1.5 ${isTaken ? 'line-through text-[#B4A9A2] opacity-70' : 'text-[#5C636A]'}`}>
-                                {(isInjection || isSuppository) && <i className={`${iconClass} text-xs ${textColorClass}`}></i>}
-                                {med.name} 
-                                <span className={`text-sm ${textColorClass} font-semibold`}>
-                                  ({med.dosage || defaultDosage})
-                                </span>
-                              </div>
+
+                              {/* 月曆右側：編輯與單日刪除按鈕 */}
+                              {editingMedId === med.id ? (
+                                <div className="flex items-center gap-1 ml-2">
+                                  <input type="text" value={editDosageValue} onChange={(e) => setEditDosageValue(e.target.value)} className="w-12 p-1 text-xs bg-[#FAFAFA] border border-[#B3C0BA] rounded" />
+                                  <button onClick={() => handleSetupEditSave(med.id)} className="text-[10px] bg-[#8A9A95] text-white px-2 py-1 rounded">存</button>
+                                  <button onClick={handleSetupEditCancel} className="text-[10px] bg-[#E5E4DE] text-[#5C636A] px-2 py-1 rounded">消</button>
+                                </div>
+                              ) : (
+                                <div className="flex gap-2">
+                                  <button onClick={() => handleSetupEditStart(med)} className="text-[#E5E4DE] hover:text-[#8A9A95] p-1"><i className="fa-solid fa-pen text-xs"></i></button>
+                                  <button onClick={() => handleRemoveDate(med.id, selectedDateKey)} className="text-[#E5E4DE] hover:text-[#D98A8A] p-1"><i className="fa-solid fa-trash-can text-xs"></i></button>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -630,13 +693,20 @@
       };
 
       return (
-        <div className="min-h-screen relative w-full">
+        <div className="min-h-screen relative w-full font-sans">
+          {/* 自訂訊息 Toast */}
+          {toastMsg && (
+            <div className="fixed top-12 left-1/2 -translate-x-1/2 bg-[#4A5568] text-white px-5 py-3 rounded-full shadow-lg z-50 text-sm flex items-center gap-2 animate-toast whitespace-nowrap">
+              <i className="fa-solid fa-circle-check text-[#A3B1A6]"></i> {toastMsg}
+            </div>
+          )}
+
           {activeTab === 'daily' && renderDailyView()}
           {activeTab === 'calendar' && renderCalendarView()}
           {activeTab === 'setup' && renderSetupView()}
           {activeTab === 'library' && renderLibraryView()}
 
-          <nav className="fixed bottom-0 w-full bg-white border-t border-[#E5E4DE] pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.03)] z-50">
+          <nav className="fixed bottom-0 w-full bg-white border-t border-[#E5E4DE] pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.03)] z-40">
             <div className="flex justify-around items-center p-2">
               <button onClick={() => setActiveTab('daily')} className={`flex flex-col items-center p-2 w-16 transition-colors ${activeTab === 'daily' ? 'text-[#8A9A95]' : 'text-[#C4CACA]'}`}>
                 <i className="fa-solid fa-clipboard-check text-2xl mb-1"></i>
