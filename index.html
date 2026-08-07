@@ -121,11 +121,15 @@
 
       // --- 藥單設定邏輯 ---
       const [setupData, setSetupData] = useState({
-        name: '', appearance: '', efficacy: '', dosage: '', type: 'pill', // 新增 type
+        name: '', appearance: '', efficacy: '', dosage: '', type: 'pill',
         times: { morning: false, noon: false, night: false, bed: false },
         days: []
       });
       const [customDateStr, setCustomDateStr] = useState('');
+
+      // 新增：編輯排程劑量的狀態
+      const [editingMedId, setEditingMedId] = useState(null);
+      const [editDosageValue, setEditDosageValue] = useState('');
 
       const next7Days = Array.from({ length: 7 }, (_, i) => {
         const d = new Date();
@@ -192,6 +196,24 @@
         const newMeds = medications.filter(m => m.id !== id);
         setMedications(newMeds);
         syncDataToCloud(null, newMeds, null);
+      };
+
+      // 新增：開始編輯、儲存與取消的邏輯
+      const handleSetupEditStart = (med) => {
+        setEditingMedId(med.id);
+        const defaultDosage = med.type === 'injection' ? '1支' : med.type === 'suppository' ? '1次' : '1顆';
+        setEditDosageValue(med.dosage || defaultDosage);
+      };
+
+      const handleSetupEditSave = (id) => {
+        const newMeds = medications.map(m => m.id === id ? { ...m, dosage: editDosageValue } : m);
+        setMedications(newMeds);
+        setEditingMedId(null);
+        syncDataToCloud(null, newMeds, null);
+      };
+
+      const handleSetupEditCancel = () => {
+        setEditingMedId(null);
       };
 
       // --- 打卡邏輯 ---
@@ -344,20 +366,52 @@
               </button>
             </form>
           </section>
+          
           <div className="mx-4 space-y-3">
             <h3 className="font-medium text-[#8A9A95] pl-1">已設定排程</h3>
-            {medications.map(med => (
-              <div key={med.id} className="p-4 bg-white rounded-xl border border-[#E5E4DE] relative">
-                <button onClick={() => handleSetupDelete(med.id)} className="absolute top-4 right-4 text-[#D1C8C1] hover:text-[#D98A8A]">
-                  <i className="fa-solid fa-trash-can text-sm"></i>
-                </button>
-                <div className="font-medium text-[#4A5568]">{med.name} <span className="text-sm text-[#8A9A95]">({med.dosage || '1顆'})</span></div>
-                <div className="text-xs text-[#8F9CA4] mt-1 space-y-1">
-                  <div>📆 共 {med.days.length} 天設定</div>
-                  <div>⏰ 時段: {['morning', 'noon', 'night', 'bed'].filter(k => med.times[k]).map(k => ({morning:'早',noon:'中',night:'晚',bed:'睡前'})[k]).join(', ')}</div>
+            {medications.map(med => {
+              const defaultDosage = med.type === 'injection' ? '1支' : med.type === 'suppository' ? '1次' : '1顆';
+              return (
+                <div key={med.id} className="p-4 bg-white rounded-xl border border-[#E5E4DE] relative">
+                  {/* 右上角操作按鈕區 (編輯與刪除) */}
+                  <div className="absolute top-4 right-4 flex gap-4">
+                    {editingMedId !== med.id && (
+                      <button onClick={() => handleSetupEditStart(med)} className="text-[#B3C0BA] hover:text-[#8A9A95] transition-colors flex items-center justify-center">
+                        <i className="fa-solid fa-pen"></i>
+                      </button>
+                    )}
+                    <button onClick={() => handleSetupDelete(med.id)} className="text-[#D1C8C1] hover:text-[#D98A8A] transition-colors flex items-center justify-center">
+                      <i className="fa-solid fa-trash-can text-lg"></i>
+                    </button>
+                  </div>
+                  
+                  <div className="font-medium text-[#4A5568] pr-16">
+                    {med.name} 
+                    {editingMedId === med.id ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        <input 
+                          type="text" 
+                          value={editDosageValue} 
+                          onChange={(e) => setEditDosageValue(e.target.value)} 
+                          className="w-24 p-1.5 text-sm bg-[#FAFAFA] border border-[#B3C0BA] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#8A9A95]"
+                          placeholder="修改用量"
+                        />
+                        <button onClick={() => handleSetupEditSave(med.id)} className="text-xs bg-[#8A9A95] text-white px-3 py-2 rounded-lg hover:bg-[#788883]">儲存</button>
+                        <button onClick={handleSetupEditCancel} className="text-xs bg-[#E5E4DE] text-[#5C636A] px-3 py-2 rounded-lg hover:bg-[#D6DAD8]">取消</button>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-[#8A9A95] ml-1">
+                        ({med.dosage || defaultDosage})
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-[#8F9CA4] mt-2 space-y-1">
+                    <div>📆 共 {med.days.length} 天設定</div>
+                    <div>⏰ 時段: {['morning', 'noon', 'night', 'bed'].filter(k => med.times[k]).map(k => ({morning:'早',noon:'中',night:'晚',bed:'睡前'})[k]).join(', ')}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       );
